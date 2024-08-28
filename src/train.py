@@ -186,7 +186,13 @@ def main():
         model = Linear_esm(model_location, output_dim, num_blocks, num_layers).to(device)
 
         # Define loss function and optimizer
-        criterion = nn.BCELoss().to(device)
+
+        if output_dim == 2:
+            criterion = nn.BCELoss().to(device)
+        elif output_dim > 2:
+            criterion = nn.CrossEntropyLoss().to(device) 
+        else:
+            raise ValueError("Invalid output_dim. It should be 2 for binary classification or greater than 2 for multi-class classification.")
         optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
         # Training loop
