@@ -11,11 +11,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 from layers import LayerNorm, Linear_piece, Linear_block
 from protein_embedding import ProteinEmbedding
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class Linear_esm(nn.Module):
-    def __init__(self, model_location, output_dim, num_blocks,num_layers):
+    def __init__(
+        self, model_location, output_dim, num_blocks, num_layers, dropout_rate
+    ):
         super().__init__()
         self.model_location = model_location
 
@@ -43,11 +46,14 @@ class Linear_esm(nn.Module):
         self.class_fc = nn.Linear(self.embed_dim, self.output_dim).to(
             device
         )  # Ensure fc layer is on the correct device
+        self.dropout = nn.Dropout(dropout_rate).to(device)
 
     def forward(self, fasta_file):
         # Load and process fasta file (this might already be on the correct device)
         prot_embed = (
-            ProteinEmbedding(self.model_location, fasta_file, self.num_layers).forward().to(device)
+            ProteinEmbedding(self.model_location, fasta_file, self.num_layers)
+            .forward()
+            .to(device)
         )
 
         length = prot_embed.shape[0]
@@ -63,7 +69,7 @@ class Linear_esm(nn.Module):
         x = prot_embed.to(device)  # Ensure the embedding is on the correct device
         for fc_block in fc_blocks:
             x = fc_block(x)
-
+            x = self.dropout(x)
         x = self.layer_norm(x)
         x = x.mean(dim=0)
         x = self.class_fc(x)

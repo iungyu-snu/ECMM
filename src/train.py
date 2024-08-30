@@ -100,6 +100,12 @@ def main():
     parser.add_argument("batch_size", type=int, help="Batch size to use")
     parser.add_argument("learning_rate", type=float, help="Learning rate to use")
     parser.add_argument("num_epochs", type=int, help="Number of epochs")
+    parser.add_argument(
+        "--dropout_rate", type=float, default=0, help="Dropout rate to use"
+    )
+    parser.add_argument(
+        "--weight_decay", type=float, default=0, help="weight_decay value"
+    )
     parser.add_argument("--nogpu", action="store_true", help="Use CPU instead of GPU")
 
     args = parser.parse_args()
@@ -114,6 +120,8 @@ def main():
     print(f"Learning rate: {args.learning_rate}")
     print(f"Number of epochs: {args.num_epochs}")
     print(f"Use GPU: {not args.nogpu}")
+    print(f"Dropout_rate: {args.dropout_rate}")
+    print(f"Weight Decay: {args.weight_decay}")
 
     fasta_files = [
         f
@@ -130,6 +138,8 @@ def main():
     batch_size = args.batch_size
     learning_rate = args.learning_rate
     num_epochs = args.num_epochs
+    dropout_rate = args.dropout_rate
+    weight_decay = args.weight_decay
     device = torch.device(
         "cuda" if torch.cuda.is_available() and not args.nogpu else "cpu"
     )
@@ -138,7 +148,7 @@ def main():
 
     ################ 5-Cross Validation #############
     model_location = args.model_location
-    
+
     if model_location == "esm2_t48_15B_UR50D":
         num_layers = 47
     elif model_location == "esm2_t36_3B_UR50D":
@@ -153,11 +163,11 @@ def main():
         num_layers = 5
     else:
         raise ValueError(f"Unknown model location: {model_location}")
-    
+
     dataset = FastaDataset(fasta_files)
     kf = KFold(n_splits=k_folds, shuffle=True)
     save_dir = args.save_dir
-    
+
     fold_results = []
     train_losses = []
     val_losses = []
@@ -182,20 +192,22 @@ def main():
             collate_fn=lambda batch: custom_collate_fn(batch, output_dim),
         )
 
-        # Initialize the model
-        model = Linear_esm(model_location, output_dim, num_blocks, num_layers).to(device)
-
-        # Define loss function and optimizer
+        model = Linear_esm(
+            model_location, output_dim, num_blocks, num_layers, dropout_rate
+        ).to(device)
 
         if output_dim == 2:
             criterion = nn.BCELoss().to(device)
         elif output_dim > 2:
-            criterion = nn.CrossEntropyLoss().to(device) 
+            criterion = nn.CrossEntropyLoss().to(device)
         else:
-            raise ValueError("Invalid output_dim. It should be 2 for binary classification or greater than 2 for multi-class classification.")
-        optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+            raise ValueError(
+                "Invalid output_dim. It should be 2 for binary classification or greater than 2 for multi-class classification."
+            )
+        optimizer = optim.Adam(
+            model.parameters(), lr=learning_rate, weight_decay=weight_decay
+        )
 
-        # Training loop
         fold_train_losses = []
         fold_val_losses = []
         for epoch in range(num_epochs):
@@ -212,19 +224,16 @@ def main():
         train_losses.append(fold_train_losses)
         val_losses.append(fold_val_losses)
 
-        # Save the model for this fold
         model_save_path = os.path.join(save_dir, f"linear_esm_model_fold_{fold+1}.pth")
         torch.save(model.state_dict(), model_save_path)
 
         fold_results.append(val_loss)
 
-    # Print cross-validation results
     print("Cross-validation complete. Results:")
     for fold, result in enumerate(fold_results):
         print(f"Fold {fold+1}: Validation Loss = {result:.4f}")
     print(f"Average Validation Loss: {sum(fold_results)/len(fold_results):.4f}")
 
-    # Plotting the losses
     for fold in range(k_folds):
         plt.plot(train_losses[fold], label=f"Fold {fold+1} Training Loss")
         plt.plot(val_losses[fold], label=f"Fold {fold+1} Validation Loss")
@@ -234,11 +243,9 @@ def main():
     plt.ylabel("Loss")
     plt.legend()
 
-    # Save the plot
     plot_save_path = os.path.join(save_dir, "training_validation_losses.png")
     plt.savefig(plot_save_path)
 
-    # Show the plot
     plt.show()
 
     print(f"Loss plot saved to {plot_save_path}")
