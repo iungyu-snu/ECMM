@@ -11,6 +11,8 @@ import os
 from protein_embedding import ProteinEmbedding
 from dataset import FastaDataset
 from model import Linear_esm
+from sklearn.metrics import f1_score, accuracy_score
+import numpy as np
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -50,24 +52,31 @@ def train(model, dataloader, criterion, optimizer, device):
 def validate(model, dataloader, criterion, device):
     model.eval()
     total_loss = 0
+    all_preds = []
+    all_targets = []
     with torch.no_grad():
         for batch_idx, (binary_annotations, fasta_files) in enumerate(dataloader):
-
-            # binary_annotations is already in the correct shape, so no need to modify it
-
             outputs = []
             for fasta_file in fasta_files:
                 output = model(fasta_file).to(device)
                 outputs.append(output)
-
-            # Stack outputs to form a tensor with shape (batch_size, num_labels)
             outputs = torch.stack(outputs)
 
             # Compute the loss
             loss = criterion(outputs, binary_annotations)
             total_loss += loss.item()
 
-    return total_loss / len(dataloader)
+            # Get predictions: Use threshold 0.5 for binary classification
+            preds = (outputs > 0.5).float() if outputs.size(1) == 2 else torch.argmax(outputs, dim=1)
+
+            all_preds.extend(preds.cpu().numpy())
+            all_targets.extend(binary_annotations.cpu().numpy())
+
+    # Calculate F1 score and accuracy
+    f1 = f1_score(all_targets, all_preds, average='macro')
+    accuracy = accuracy_score(all_targets, all_preds)
+
+    return total_loss / len(dataloader), f1, accuracy
 
 
 def custom_collate_fn(batch, output_dim):
@@ -172,7 +181,13 @@ def main():
     train_losses = []
     val_losses = []
 
+    early_stopping_patience = 5
+    min_val_loss = np.Inf
+    patience_counter = 0
     for fold, (train_indices, val_indices) in enumerate(kf.split(dataset)):
+        if fold != 0:  # Skip all folds except the first one
+            continue
+
         print(f"FOLD {fold+1}/{k_folds}")
         print("--------------------------------")
 
@@ -210,45 +225,60 @@ def main():
 
         fold_train_losses = []
         fold_val_losses = []
+        fold_f1_scores = []
+        fold_accuracies = []
         for epoch in range(num_epochs):
             avg_loss = train(model, train_dataloader, criterion, optimizer, device)
             fold_train_losses.append(avg_loss)
 
-            val_loss = validate(model, val_dataloader, criterion, device)
+            val_loss, f1, accuracy = validate(model, val_dataloader, criterion, device)
             fold_val_losses.append(val_loss)
+            fold_f1_scores.append(f1)
+            fold_accuracies.append(accuracy)
 
             print(
-                f"Epoch [{epoch+1}/{num_epochs}], Training Loss: {avg_loss:.4f}, Validation Loss: {val_loss:.4f}"
+                f"Epoch [{epoch+1}/{num_epochs}], Training Loss: {avg_loss:.4f}, Validation Loss: {val_loss:.4f}, F1 Score: {f1:.4f}, Accuracy: {accuracy:.4f}"
             )
+
+            if val_loss < min_val_loss:
+                min_val_loss = val_loss
+                patience_counter = 0
+                best_model_state = model.state_dict()
+            else:
+                patience_counter += 1
+                print(f"Early stopping counter: {patience_counter} / {early_stopping_patience}")
+                if patience_counter >= early_stopping_patience:
+                    print("Early stopping triggered due to lack of improvement.")
+                    break
+
+        if 'best_model_state' in locals():
+            model_save_path = os.path.join(save_dir, f"linear_esm_model_fold_{fold+1}_best.pth")
+            torch.save(best_model_state, model_save_path)
+        else:
+            model_save_path = os.path.join(save_dir, f"linear_esm_model_fold_{fold+1}.pth")
+            torch.save(model.state_dict(), model_save_path)
 
         train_losses.append(fold_train_losses)
         val_losses.append(fold_val_losses)
 
-        model_save_path = os.path.join(save_dir, f"linear_esm_model_fold_{fold+1}.pth")
-        torch.save(model.state_dict(), model_save_path)
+        print(f"Cross-validation complete for fold {fold+1}. Validation Loss = {val_loss:.4f}, F1 Score = {f1:.4f}, Accuracy = {accuracy:.4f}")
 
-        fold_results.append(val_loss)
+        # Plotting for just this fold
+        plt.plot(train_losses[0], label=f"Fold {fold+1} Training Loss")
+        plt.plot(val_losses[0], label=f"Fold {fold+1} Validation Loss")
+        plt.plot(fold_f1_scores, label=f"Fold {fold+1} F1 Score")
+        plt.plot(fold_accuracies, label=f"Fold {fold+1} Accuracy")
 
-    print("Cross-validation complete. Results:")
-    for fold, result in enumerate(fold_results):
-        print(f"Fold {fold+1}: Validation Loss = {result:.4f}")
-    print(f"Average Validation Loss: {sum(fold_results)/len(fold_results):.4f}")
+        plt.title(f"Training and Validation Metrics for {model_location}_{num_blocks}_{learning_rate}")
+        plt.xlabel("Epochs")
+        plt.ylabel("Metric Value")
+        plt.legend()
 
-    for fold in range(k_folds):
-        plt.plot(train_losses[fold], label=f"Fold {fold+1} Training Loss")
-        plt.plot(val_losses[fold], label=f"Fold {fold+1} Validation Loss")
+        plot_save_path = os.path.join(save_dir, f"{model_location}_{num_blocks}_{learning_rate}_{dropout_rate}_{weight_decay}.png")
+        plt.savefig(plot_save_path)
 
-    plt.title("Training and Validation Losses")
-    plt.xlabel("Epochs")
-    plt.ylabel("Loss")
-    plt.legend()
-
-    plot_save_path = os.path.join(save_dir, "training_validation_losses.png")
-    plt.savefig(plot_save_path)
-
-    plt.show()
-
-    print(f"Loss plot saved to {plot_save_path}")
+        plt.show()
+        print(f"Loss and metrics plot saved to {plot_save_path}")
 
 
 if __name__ == "__main__":
