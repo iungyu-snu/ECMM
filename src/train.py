@@ -67,13 +67,17 @@ def validate(model, dataloader, criterion, device):
             total_loss += loss.item()
 
             # Get predictions: Use threshold 0.5 for binary classification
-            preds = (outputs > 0.5).float() if outputs.size(1) == 2 else torch.argmax(outputs, dim=1)
+            preds = (
+                (outputs > 0.5).float()
+                if outputs.size(1) == 2
+                else torch.argmax(outputs, dim=1)
+            )
 
             all_preds.extend(preds.cpu().numpy())
             all_targets.extend(binary_annotations.cpu().numpy())
 
     # Calculate F1 score and accuracy
-    f1 = f1_score(all_targets, all_preds, average='macro')
+    f1 = f1_score(all_targets, all_preds, average="macro")
     accuracy = accuracy_score(all_targets, all_preds)
 
     return total_loss / len(dataloader), f1, accuracy
@@ -246,22 +250,30 @@ def main():
                 best_model_state = model.state_dict()
             else:
                 patience_counter += 1
-                print(f"Early stopping counter: {patience_counter} / {early_stopping_patience}")
+                print(
+                    f"Early stopping counter: {patience_counter} / {early_stopping_patience}"
+                )
                 if patience_counter >= early_stopping_patience:
                     print("Early stopping triggered due to lack of improvement.")
                     break
 
-        if 'best_model_state' in locals():
-            model_save_path = os.path.join(save_dir, f"linear_esm_model_fold_{fold+1}_best.pth")
+        if "best_model_state" in locals():
+            model_save_path = os.path.join(
+                save_dir, f"{model_location}_{num_blocks}_{learning_rate}_{dropout_rate}_{weight_decay}_earlystopped.pth"
+            )
             torch.save(best_model_state, model_save_path)
         else:
-            model_save_path = os.path.join(save_dir, f"linear_esm_model_fold_{fold+1}.pth")
+            model_save_path = os.path.join(
+                save_dir, f"{model_location}_{num_blocks}_{learning_rate}_{dropout_rate}_{weight_decay}.pth"
+            )
             torch.save(model.state_dict(), model_save_path)
 
         train_losses.append(fold_train_losses)
         val_losses.append(fold_val_losses)
 
-        print(f"Cross-validation complete for fold {fold+1}. Validation Loss = {val_loss:.4f}, F1 Score = {f1:.4f}, Accuracy = {accuracy:.4f}")
+        print(
+            f"Cross-validation complete for fold {fold+1}. Validation Loss = {val_loss:.4f}, F1 Score = {f1:.4f}, Accuracy = {accuracy:.4f}"
+        )
 
         # Plotting for just this fold
         plt.plot(train_losses[0], label=f"Fold {fold+1} Training Loss")
@@ -269,12 +281,17 @@ def main():
         plt.plot(fold_f1_scores, label=f"Fold {fold+1} F1 Score")
         plt.plot(fold_accuracies, label=f"Fold {fold+1} Accuracy")
 
-        plt.title(f"Training and Validation Metrics for {model_location}_{num_blocks}_{learning_rate}")
+        plt.title(
+            f"Training and Validation Metrics for {model_location}_{num_blocks}_{learning_rate}"
+        )
         plt.xlabel("Epochs")
         plt.ylabel("Metric Value")
         plt.legend()
 
-        plot_save_path = os.path.join(save_dir, f"{model_location}_{num_blocks}_{learning_rate}_{dropout_rate}_{weight_decay}.png")
+        plot_save_path = os.path.join(
+            save_dir,
+            f"{model_location}_{num_blocks}_{learning_rate}_{dropout_rate}_{weight_decay}.png",
+        )
         plt.savefig(plot_save_path)
 
         plt.show()
