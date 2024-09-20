@@ -17,7 +17,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class Linear_esm(nn.Module):
     def __init__(
-        self, model_location, output_dim, num_blocks, num_layers, dropout_rate
+        self, model_location, output_dim, num_blocks, num_layers, dropout_rate=0
     ):
         super().__init__()
         self.model_location = model_location

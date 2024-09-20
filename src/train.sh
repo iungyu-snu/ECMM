@@ -2,12 +2,12 @@
 
 MODEL_LOCATION="esm2_t6_8M_UR50D"
 FASTA_DIR="/nashome/uglee/training/data/data_ver3"
-SAVE_DIR="/nashome/uglee/ai_save"
+SAVE_DIR="/nashome/uglee/ECMM/tests"
 OUTPUT_DIM=2
-NUM_BLOCKS=4
+NUM_BLOCKS=2
 BATCH_SIZE=32
 LEARNING_RATE=0.001
-NUM_EPOCHS=15
+NUM_EPOCHS=25
 USE_GPU=true
 WEIGHT_DECAY=0
 
