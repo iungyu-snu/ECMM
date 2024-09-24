@@ -23,7 +23,22 @@ The data has the following conditions
 3. the top line of the fasta file must contain the number (integer) of the corresponding group.
 
 
-### training
+### Usage
 
-You can do training by writing down the conditions in train.sh and executing src/train.sh.
+#### Training
+```
+usage: train [-h] [--dropout_rate DROPOUT_RATE] [--weight_decay WEIGHT_DECAY]
+             [--nogpu]
+             model_location fasta_dir save_dir output_dim num_blocks
+             batch_size learning_rate num_epochs
+```
+
+#### Evaluation
+```
+usage: evaluate [-h] [--nogpu]
+                model_location fasta_path model_checkpoint output_dim
+                num_blocks
+```
+
+
 
