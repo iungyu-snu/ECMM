@@ -162,21 +162,6 @@ def main():
     ################ 5-Cross Validation #############
     model_location = args.model_location
 
-    if model_location == "esm2_t48_15B_UR50D":
-        num_layers = 47
-    elif model_location == "esm2_t36_3B_UR50D":
-        num_layers = 35
-    elif model_location == "esm2_t33_650M_UR50D":
-        num_layers = 32
-    elif model_location == "esm2_t30_150M_UR50D":
-        num_layers = 29
-    elif model_location == "esm2_t12_35M_UR50D":
-        num_layers = 11
-    elif model_location == "esm2_t6_8M_UR50D":
-        num_layers = 5
-    else:
-        raise ValueError(f"Unknown model location: {model_location}")
-
     dataset = FastaDataset(fasta_files)
     kf = KFold(n_splits=k_folds, shuffle=True)
     save_dir = args.save_dir
@@ -212,7 +197,7 @@ def main():
         )
 
         model = Linear_esm(
-            model_location, output_dim, num_blocks, num_layers, dropout_rate
+            model_location, output_dim, num_blocks,dropout_rate
         ).to(device)
 
         if output_dim == 2:
