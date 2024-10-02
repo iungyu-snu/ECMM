@@ -1,8 +1,8 @@
 #!/bin/bash
-
+echo "Start time: $(date +"%Y-%m-%d %H:%M:%S")"
 MODEL_LOCATION="esm2_t6_8M_UR50D"
 FASTA_DIR="/nashome/uglee/training/data/data_ver3"
-SAVE_DIR="/nashome/uglee/ECMM/tests"
+SAVE_DIR="/nashome/uglee/ECT/tests"
 OUTPUT_DIM=2
 NUM_BLOCKS=2
 BATCH_SIZE=32
@@ -19,3 +19,5 @@ fi
 
 echo "Running command: $CMD"
 $CMD
+
+echo "END time: $(date +"%Y-%m-%d %H:%M:%S")"

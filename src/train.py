@@ -10,8 +10,8 @@ import matplotlib.pyplot as plt
 import os
 from protein_embedding import ProteinEmbedding
 from dataset import FastaDataset
-from model import Linear_esm
-from sklearn.metrics import f1_score, accuracy_score
+from model import ECT
+from sklearn.metrics import f1_score, accuracy_score, roc_auc_score
 import numpy as np
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -25,20 +25,9 @@ def train(model, dataloader, criterion, optimizer, device):
 
         optimizer.zero_grad()
 
-        outputs = []
-        for fasta_file in fasta_files:
-            output = model.forward(fasta_file).to(device)
-            outputs.append(output)
+        binary_annotations = binary_annotations.to(device)
 
-        outputs = torch.stack(outputs).to(device)
-
-        if outputs.shape != binary_annotations.shape:
-            print(
-                f"Error: Output shape {outputs.shape} does not match target shape {binary_annotations.shape}"
-            )
-            raise ValueError(
-                f"Output shape {outputs.shape} does not match target shape {binary_annotations.shape}"
-            )
+        outputs = model(fasta_files)
 
         loss = criterion(outputs, binary_annotations)
         loss.backward()
@@ -54,34 +43,59 @@ def validate(model, dataloader, criterion, device):
     total_loss = 0
     all_preds = []
     all_targets = []
+    all_probs = []  # To store probabilities or scores for AUC
     with torch.no_grad():
         for batch_idx, (binary_annotations, fasta_files) in enumerate(dataloader):
-            outputs = []
-            for fasta_file in fasta_files:
-                output = model(fasta_file).to(device)
-                outputs.append(output)
-            outputs = torch.stack(outputs)
+            binary_annotations = binary_annotations.to(device)
+            outputs = model(fasta_files)
 
             # Compute the loss
             loss = criterion(outputs, binary_annotations)
             total_loss += loss.item()
 
-            # Get predictions: Use threshold 0.5 for binary classification
-            preds = (
-                (outputs > 0.5).float()
-                if outputs.size(1) == 2
-                else torch.argmax(outputs, dim=1)
-            )
+            # Convert one-hot encoded targets to class indices if necessary
+            if binary_annotations.ndim > 1 and binary_annotations.size(1) > 1:
+                binary_annotations = torch.argmax(binary_annotations, dim=1)
 
+            # Get probabilities and predictions
+            probs = torch.softmax(outputs, dim=1)
+            preds = torch.argmax(probs, dim=1)
+
+            # Store predictions and targets
             all_preds.extend(preds.cpu().numpy())
             all_targets.extend(binary_annotations.cpu().numpy())
+
+            # Store probabilities for AUC calculation
+            if outputs.size(1) == 2:
+                # Binary classification: store probability of positive class
+                all_probs.extend(probs[:, 1].cpu().numpy())
+            else:
+                # Multi-class classification: append probability distributions
+                all_probs.append(probs.cpu().numpy())
+
+    # Convert lists to numpy arrays
+    all_targets = np.array(all_targets)
+    all_preds = np.array(all_preds)
+
+    # Process all_probs for AUC calculation
+    if outputs.size(1) == 2:
+        all_probs = np.array(all_probs)  # Shape: (num_samples,)
+    else:
+        all_probs = np.concatenate(all_probs, axis=0)  # Shape: (num_samples, num_classes)
 
     # Calculate F1 score and accuracy
     f1 = f1_score(all_targets, all_preds, average="macro")
     accuracy = accuracy_score(all_targets, all_preds)
 
-    return total_loss / len(dataloader), f1, accuracy
+    # Calculate AUC
+    if outputs.size(1) == 2:
+        # Binary classification
+        auc = roc_auc_score(all_targets, all_probs)
+    else:
+        # Multi-class classification
+        auc = roc_auc_score(all_targets, all_probs, average="macro", multi_class="ovr")
 
+    return total_loss / len(dataloader), f1, accuracy, auc
 
 def custom_collate_fn(batch, output_dim):
     annotations, fasta_files = zip(*batch)
@@ -136,6 +150,8 @@ def main():
     print(f"Dropout_rate: {args.dropout_rate}")
     print(f"Weight Decay: {args.weight_decay}")
 
+
+    print("Handling the fasta files in custom dataset")
     fasta_files = [
         f
         for f in glob.glob(os.path.join(args.fasta_dir, "*.fasta"))
@@ -144,7 +160,7 @@ def main():
     temp_fasta_files = glob.glob(os.path.join(args.fasta_dir, "*_temp.fasta"))
     for temp_file in temp_fasta_files:
         os.remove(temp_file)
-
+    print("Handling fasta files end")
     ########## Training Parameters #################
     output_dim = args.output_dim
     num_blocks = args.num_blocks
@@ -162,7 +178,10 @@ def main():
     ################ 5-Cross Validation #############
     model_location = args.model_location
 
+
+    print("Handling FastaDataset")
     dataset = FastaDataset(fasta_files)
+    print("Handling FastaDataset End")
     kf = KFold(n_splits=k_folds, shuffle=True)
     save_dir = args.save_dir
 
@@ -173,6 +192,7 @@ def main():
     early_stopping_patience = 5
     min_val_loss = np.Inf
     patience_counter = 0
+    print("Training starts")
     for fold, (train_indices, val_indices) in enumerate(kf.split(dataset)):
         if fold != 0:  # Skip all folds except the first one
             continue
@@ -196,8 +216,8 @@ def main():
             collate_fn=lambda batch: custom_collate_fn(batch, output_dim),
         )
 
-        model = Linear_esm(
-            model_location, output_dim, num_blocks,dropout_rate
+        model = ECT(
+            model_location, output_dim, num_blocks, dropout_rate
         ).to(device)
 
         if output_dim == 2:
@@ -216,17 +236,17 @@ def main():
         fold_val_losses = []
         fold_f1_scores = []
         fold_accuracies = []
+        print("Training epoch starts")
         for epoch in range(num_epochs):
             avg_loss = train(model, train_dataloader, criterion, optimizer, device)
             fold_train_losses.append(avg_loss)
-
-            val_loss, f1, accuracy = validate(model, val_dataloader, criterion, device)
+            val_loss, f1, accuracy, auc = validate(model, val_dataloader, criterion, device)
             fold_val_losses.append(val_loss)
             fold_f1_scores.append(f1)
             fold_accuracies.append(accuracy)
 
             print(
-                f"Epoch [{epoch+1}/{num_epochs}], Training Loss: {avg_loss:.4f}, Validation Loss: {val_loss:.4f}, F1 Score: {f1:.4f}, Accuracy: {accuracy:.4f}"
+                f"Epoch [{epoch+1}/{num_epochs}], Training Loss: {avg_loss:.4f}, Validation Loss: {val_loss:.4f}, F1 Score: {f1:.4f}, Accuracy: {accuracy:.4f}, AUC: {auc:.4f}"
             )
 
             if val_loss < min_val_loss:
