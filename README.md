@@ -1,13 +1,13 @@
-# ECMM(ESM enzyme Classifier with MLP Mixer)
-1. the model uses META's ESM as the embedding model and Google's MLP mixer's architecture as the enzyme classifier 
-2. the purpose of the model is to look at the FASTA file and classify the enzymes 
-3. we have prepared the code to train it, so let's train it!
+# EnzFormer
+1. The model uses META's ESM as the embedding model and transformer architecture as the enzyme classifier 
+2. The purpose of the model is to look at the FASTA file and classify the enzymes 
+3. We have prepared the code to train it, so let's train it!
 ## How to use
 
 ### Create a virtual environment
 
 ```
-cd ECMM
+cd EnzFormer
 conda env create -f environment.yaml
 pip install -e .
 ```
